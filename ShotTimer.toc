@@ -3,6 +3,6 @@
 ## Author: Weird Vibes
 ## Version: 1.1
 ## Notes: Just a simple timer for hunter auto shots
-## SavedVariables: ShotTimerDB
+## SavedVariablesPerCharacter: ShotTimerDB
 
 ShotTimer.lua
