@@ -145,7 +145,7 @@ SlashCmdList["SHOTTIMER"] = function(msg)
     SetFrameLocked(false)
     DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar reset.")
   else
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetaData("ShotTimer","Version") ..": /autoshot lock | unlock | reset")
+    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot lock | unlock | reset")
   end
 end
 
