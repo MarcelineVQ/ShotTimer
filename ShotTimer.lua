@@ -130,6 +130,17 @@ local function ResetShotTimerPosition()
   DEFAULT_CHAT_FRAME:AddMessage("AutoShot bar position reset to center.")
 end
 
+local function SetShotTimerPosition()
+  shotTimer:ClearAllPoints()
+  shotTimer:SetPoint(
+    ShotTimerDB.framePos.point or "CENTER",
+    UIParent,
+    ShotTimerDB.framePos.relPoint or "CENTER",
+    (ShotTimerDB.framePos.x or 0) * (1 / (ShotTimerDB.scale or 1)) or 0,
+    (ShotTimerDB.framePos.y or 0) * (1 / (ShotTimerDB.scale or 1)) or 0
+  )
+end
+
 -- Slash handler
 SLASH_SHOTTIMER1 = "/shottimer"
 SlashCmdList["SHOTTIMER"] = function(msg)
@@ -143,7 +154,19 @@ SlashCmdList["SHOTTIMER"] = function(msg)
   elseif string.find(msg, "reset") then
     ResetShotTimerPosition()
     SetFrameLocked(false)
+    shotTimer:SetScale(1)
     DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar reset.")
+  elseif string.find(msg, "scale") then
+    local _,_,scale = string.find(msg, "scale%s+(%d*%.?%d+)")
+    scale = tonumber(scale)
+    if scale and scale > 0.3 and scale < 3 then
+      ShotTimerDB.scale = scale
+      shotTimer:SetScale(scale)
+      SetShotTimerPosition()
+      DEFAULT_CHAT_FRAME:AddMessage(string.format("ShotTimer scale set to %.2f", scale))
+    else
+      DEFAULT_CHAT_FRAME:AddMessage("Usage: /shottimer scale 1.2 (range: 0.5–2)")
+    end
   else
     DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot lock | unlock | reset")
   end
@@ -197,11 +220,6 @@ shotTimer:SetScript("OnUpdate", function()
   else
     steadyShotIcon:Hide()
   end
-  -- if rem > 1.0 then
-    -- multiShotIcon:Show()
-  -- else
-    -- multiShotIcon:Hide()
-  -- end
 
   if greenLen > 0 then
     greenBar:Show()
@@ -269,11 +287,10 @@ function shotTimer:VARIABLES_LOADED()
   -- SavedVars
   ShotTimerDB = ShotTimerDB or {}
   ShotTimerDB.framePos = ShotTimerDB.framePos or {}
+  ShotTimerDB.scale = ShotTimerDB.scale or 1
 
-  shotTimer:ClearAllPoints()
-  shotTimer:SetPoint(ShotTimerDB.framePos.point or "CENTER", UIParent,
-                   ShotTimerDB.framePos.relPoint or "CENTER",
-                   ShotTimerDB.framePos.x or 0, ShotTimerDB.framePos.y or 0)
+  shotTimer:SetScale(ShotTimerDB.scale or 1)
+  SetShotTimerPosition()
 
   if ShotTimerDB.locked == nil then
     frameLocked = false                -- default to unlocked for first-time users
