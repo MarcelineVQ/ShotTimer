@@ -6,7 +6,7 @@ local ICON_SIZE = 18
 -- ShotTimerDB = ShotTimerDB or {}
 -- ShotTimerDB.framePos = ShotTimerDB.framePos or {}
 
-local shotTimer = CreateFrame("Frame", "AutoShotTimerAnchor", UIParent)
+local shotTimer = CreateFrame("Frame", "ShotTimer", UIParent)
 -- local shotTimer = CreateFrame("Frame", "AutoShotTimerAnchor")
 shotTimer:SetWidth(BAR_WIDTH)
 shotTimer:SetHeight(BAR_HEIGHT)
@@ -168,16 +168,12 @@ SlashCmdList["SHOTTIMER"] = function(msg)
       DEFAULT_CHAT_FRAME:AddMessage("Usage: /shottimer scale 1.2 (range: 0.5–2)")
     end
   else
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot lock | unlock | reset")
+    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot lock | unlock | scale | reset")
   end
 end
 
 -- OnUpdate bar logic
-local elapsed = 0
-shotTimer:SetScript("OnUpdate", function()
-  elapsed = elapsed + arg1
-  if elapsed > 0.015 then elapsed = 0 else return end -- don't be a hog
-
+function ShotTimer_OnUpdate(elapsed)
   local now = GetTime()
   local total = auto_shot_duration
   local fill = now - auto_shot_start
@@ -251,7 +247,7 @@ shotTimer:SetScript("OnUpdate", function()
 
   -- Visibility logic
   UpdateShotTimerVisibility()
-end)
+end
 
 local function ResetAutoShot(cast_check)
   local now = GetTime()
@@ -273,17 +269,36 @@ local function ResetAutoShot(cast_check)
   end
 end
 
+local elapsed = 0
+shotTimer:SetScript("OnUpdate", function ()
+    elapsed = elapsed + arg1
+    if elapsed > 0.015 then
+      elapsed = 0
+      ShotTimer_OnUpdate(elapsed)
+    else
+      return
+    end
+end)
+
 shotTimer:SetScript("OnEvent", function ()
   shotTimer[event](shotTimer,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9)
 end)
-shotTimer:RegisterEvent("UNIT_CASTEVENT")
-shotTimer:RegisterEvent("START_AUTOREPEAT_SPELL")
 shotTimer:RegisterEvent("VARIABLES_LOADED")
-shotTimer:RegisterEvent("PLAYER_REGEN_DISABLED")
-shotTimer:RegisterEvent("PLAYER_REGEN_ENABLED")
-shotTimer:RegisterEvent("PLAYER_DEAD")
 
 function shotTimer:VARIABLES_LOADED()
+
+  local _,class = UnitClass("player")
+  if class ~= "HUNTER" then
+    shotTimer:Hide()
+    return
+  end
+
+  shotTimer:RegisterEvent("UNIT_CASTEVENT")
+  shotTimer:RegisterEvent("START_AUTOREPEAT_SPELL")
+  shotTimer:RegisterEvent("PLAYER_REGEN_DISABLED")
+  shotTimer:RegisterEvent("PLAYER_REGEN_ENABLED")
+  shotTimer:RegisterEvent("PLAYER_DEAD")
+
   -- SavedVars
   ShotTimerDB = ShotTimerDB or {}
   ShotTimerDB.framePos = ShotTimerDB.framePos or {}
