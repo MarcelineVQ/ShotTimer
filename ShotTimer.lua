@@ -1,10 +1,16 @@
 local RELOAD_TIME = 0.5
 local BAR_WIDTH = 180
 local BAR_HEIGHT = 15
-local ICON_SIZE = 18
+local ICON_SIZE = 20
 
 -- ShotTimerDB = ShotTimerDB or {}
 -- ShotTimerDB.framePos = ShotTimerDB.framePos or {}
+
+-- todo, add a startattack for melee/range
+-- todo, when bar is entirely empty should be red, to say stop attacking
+-- prevent steady shot from clipping your initial cast
+-- prevent steady shot from clipping your later cast
+
 
 local shotTimer = CreateFrame("Frame", "ShotTimer", UIParent)
 -- local shotTimer = CreateFrame("Frame", "AutoShotTimerAnchor")
@@ -63,7 +69,9 @@ msBar:SetVertexColor(0.97, 0.85, 0.38, 1)
 
 -- Text
 local autoText = shotTimer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-autoText:SetPoint("RIGHT", shotTimer, "RIGHT", -3, 0)
+autoText:SetWidth(30) -- arbitrary, just needs to be 'big enough'
+autoText:SetHeight(30) -- arbitrary, just needs to be 'big enough'
+autoText:SetPoint("RIGHT", shotTimer, "RIGHT", 3, 0)
 
 -- State
 local auto_shot_start, auto_shot_duration = 0, 0
@@ -73,6 +81,7 @@ local in_combat = false
 local frameLocked = false
 local lastPosX, lastPosY
 local auto_on = false
+RangedSwingTime = 0
 
 -- Drag/Move logic
 shotTimer:SetMovable(true)
@@ -127,7 +136,7 @@ local function ResetShotTimerPosition()
   shotTimer:ClearAllPoints()
   shotTimer:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   ShotTimerDB.framePos = { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 }
-  DEFAULT_CHAT_FRAME:AddMessage("AutoShot bar position reset to center.")
+  DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar position reset to center.")
 end
 
 local function SetShotTimerPosition()
@@ -141,13 +150,38 @@ local function SetShotTimerPosition()
   )
 end
 
+local shots = {
+  steady = { clip = 1,   spell = "Steady Shot", has = false },
+  multi  = { clip = 0.5, spell = "Multi-Shot",  has = false },
+  aimed  = { clip = 3,   spell = "Aimed Shot",  has = false },
+}
+
+function ST_AutoShot()
+  if not auto_on then
+    TargetNearestEnemy()
+    CastSpellByName("Auto Shot")
+  end
+end
+
+function ST_SafeShot(shot)
+  local spell = shots[shot]
+  if not spell.has or auto_shot_duration == RELOAD_TIME then return end
+  if RangedSwingTime > spell.clip then
+    CastSpellByName(spell.spell)
+  end
+end
+
 -- Slash handler
 SLASH_SHOTTIMER1 = "/shottimer"
 SlashCmdList["SHOTTIMER"] = function(msg)
   msg = string.lower(msg or "")
-  if string.find(msg, "unlock") then
+  if msg == "auto" then ST_AutoShot()
+  elseif msg == "steady" then ST_SafeShot("steady")
+  elseif msg == "aimed" then ST_SafeShot("aimed")
+  elseif msg == "multi" then ST_SafeShot("multi")
+  elseif string.find(msg, "unlock") then
     SetFrameLocked(false)
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar unlocked. Drag to reposition, then /autoshot lock.")
+    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar unlocked. Drag to reposition, then /shottimer lock.")
   elseif string.find(msg, "lock") then
     SetFrameLocked(true)
     DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar locked.")
@@ -168,7 +202,7 @@ SlashCmdList["SHOTTIMER"] = function(msg)
       DEFAULT_CHAT_FRAME:AddMessage("Usage: /shottimer scale 1.2 (range: 0.5–2)")
     end
   else
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot lock | unlock | scale | reset")
+    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot [lock | unlock | scale | reset] | [auto | steady | aimed | multi]")
   end
 end
 
@@ -198,6 +232,8 @@ function ShotTimer_OnUpdate(elapsed)
   if fill > total then fill = total end
   if fill < 0 then fill = 0 end
 
+  RangedSwingTime = total - fill
+
   local barMax = (BAR_WIDTH - 4)
   local redFraction = RELOAD_TIME / total
   local redLen = barMax * redFraction
@@ -210,8 +246,7 @@ function ShotTimer_OnUpdate(elapsed)
     greenLen = 0
   end
 
-  local rem = total - fill
-  if rem > 1.5 then
+  if RangedSwingTime > 1.5 then
     steadyShotIcon:Show()
   else
     steadyShotIcon:Hide()
@@ -230,7 +265,7 @@ function ShotTimer_OnUpdate(elapsed)
     redBar:Hide()
   end
 
-  autoText:SetText(string.format("%.1f", rem))
+  autoText:SetText(string.format("%.1f", RangedSwingTime))
 
   -- Multishot bar logic
   local ms_duration = 10
@@ -285,6 +320,25 @@ shotTimer:SetScript("OnEvent", function ()
 end)
 shotTimer:RegisterEvent("VARIABLES_LOADED")
 
+function shotTimer:LEARNED_SPELL_IN_TAB()
+  local i = 1
+  while true do
+    local spellName = GetSpellName(i, BOOKTYPE_SPELL)
+    if not spellName then break end
+    for k,shot in pairs(shots) do
+      if not shot.has and shot.spell == spellName then
+        shots[k].has = true
+        break
+      end
+    end
+    i = i + 1
+  end
+end
+
+function shotTimer:PLAYER_ENTERING_WORLD()
+  self:LEARNED_SPELL_IN_TAB()
+end
+
 function shotTimer:VARIABLES_LOADED()
 
   local _,class = UnitClass("player")
@@ -298,13 +352,15 @@ function shotTimer:VARIABLES_LOADED()
   shotTimer:RegisterEvent("PLAYER_REGEN_DISABLED")
   shotTimer:RegisterEvent("PLAYER_REGEN_ENABLED")
   shotTimer:RegisterEvent("PLAYER_DEAD")
+  shotTimer:RegisterEvent("LEARNED_SPELL_IN_TAB")
+  shotTimer:RegisterEvent("PLAYER_ENTERING_WORLD")
 
   -- SavedVars
   ShotTimerDB = ShotTimerDB or {}
   ShotTimerDB.framePos = ShotTimerDB.framePos or {}
-  ShotTimerDB.scale = ShotTimerDB.scale or 1
+  ShotTimerDB.scale = ShotTimerDB.scale or 1.3
 
-  shotTimer:SetScale(ShotTimerDB.scale or 1)
+  shotTimer:SetScale(ShotTimerDB.scale)
   SetShotTimerPosition()
 
   if ShotTimerDB.locked == nil then
@@ -313,6 +369,9 @@ function shotTimer:VARIABLES_LOADED()
   else
     frameLocked = ShotTimerDB.locked
   end
+
+  auto_shot_duration = RELOAD_TIME
+  RangedSwingTime = UnitRangedDamage("player")
 
   greenBar:SetWidth(0)
   redBar:SetWidth(0)
