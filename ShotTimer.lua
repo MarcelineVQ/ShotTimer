@@ -165,7 +165,7 @@ end
 
 function ST_SafeShot(shot)
   local spell = shots[shot]
-  if not spell.has or auto_shot_duration == RELOAD_TIME then return end
+  if not spell or not spell.has or auto_shot_duration == RELOAD_TIME then return end
   if RangedSwingTime > spell.clip then
     CastSpellByName(spell.spell)
   end
