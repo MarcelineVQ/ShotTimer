@@ -3,14 +3,7 @@ local BAR_WIDTH = 180
 local BAR_HEIGHT = 15
 local ICON_SIZE = 20
 
--- ShotTimerDB = ShotTimerDB or {}
--- ShotTimerDB.framePos = ShotTimerDB.framePos or {}
-
--- todo, add a startattack for melee/range
--- todo, when bar is entirely empty should be red, to say stop attacking
--- prevent steady shot from clipping your initial cast
--- prevent steady shot from clipping your later cast
-
+local title_text = "|cf7ffd700["..GetAddOnMetadata("ShotTimer","Title").."]|r"
 
 local shotTimer = CreateFrame("Frame", "ShotTimer", UIParent)
 -- local shotTimer = CreateFrame("Frame", "AutoShotTimerAnchor")
@@ -101,23 +94,48 @@ end)
 
 -- Lock/Unlock visual state & visibility logic
 local function UpdateShotTimerVisibility()
+  -- Always update barHidden from DB in case it was changed
+  barHidden = ShotTimerDB and ShotTimerDB.barHidden or false
+
+  if barHidden then
+    -- Hide only visuals, never the parent frame
+    outline:Hide()
+    greenBar:Hide()
+    redBar:Hide()
+    autoText:Hide()
+    steadyShotIcon:Hide()
+    -- shotTimer:Show() -- explicitly keep frame shown for OnUpdate!
+    msBar:Hide()
+    return
+  end
+
+  -- Otherwise, normal lock/unlock logic for showing/hiding
   if frameLocked then
-    -- Show only if timer active
     local now = GetTime()
     if auto_shot_duration > 0 and (now - auto_shot_start) < auto_shot_duration then
       shotTimer:Show()
+      outline:Show()
+      autoText:Show()
     else
       if not in_combat then
-        shotTimer:Hide()
+        shotTimer:Show()  -- DO NOT HIDE shotTimer, keep updating
       end
+      outline:Show()
+      autoText:Show()
     end
-    shotTimer:SetBackdropBorderColor(0,0,0,1)
+    outline:SetBackdropBorderColor(0,0,0,1)
   else
     -- Always visible, grayed border for feedback
     shotTimer:Show()
+    outline:Show()
+    autoText:Show()
     outline:SetBackdropBorderColor(1, 0.8, 0.1, 1)
   end
+
+  -- greenBar/redBar/steadyShotIcon will be handled per update logic
 end
+
+
 
 local function SetFrameLocked(lock)
   frameLocked = lock
@@ -136,8 +154,11 @@ local function ResetShotTimerPosition()
   shotTimer:ClearAllPoints()
   shotTimer:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   ShotTimerDB.framePos = { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 }
+  barHidden = false
+  ShotTimerDB.barHidden = false
+  UpdateShotTimerVisibility()
   DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar position reset to center.")
-end
+ end
 
 local function SetShotTimerPosition()
   shotTimer:ClearAllPoints()
@@ -150,23 +171,41 @@ local function SetShotTimerPosition()
   )
 end
 
+-- slightly arbitrary leeway adjustments, so you can clip auto a tiny bit since it's still a gain
 local shots = {
-  steady = { clip = 1,   spell = "Steady Shot", has = false },
-  multi  = { clip = 0.5, spell = "Multi-Shot",  has = false },
-  aimed  = { clip = 3,   spell = "Aimed Shot",  has = false },
+  steady = { clip = 1.3, spell = "Steady Shot", id = nil },
+  multi  = { clip = 0.5, spell = "Multi-Shot",  id = nil },
+  aimed  = { clip = 3.0, spell = "Aimed Shot",  id = nil },
 }
+
+-- pet may attack target when:
+-- your target is in combat and you are in combat
+function ST_PetMayAttack()
+  local target_exists = UnitIsVisible("target") and not UnitIsDead("target")
+  local target_fighting = UnitAffectingCombat("target")
+  local you_fighting = UnitAffectingCombat("player")
+
+  return target_exists and target_fighting and you_fighting
+end
+
+function ST_SafePetAttack()
+  if ST_PetMayAttack() then CastPetAction(1) end
+end
 
 function ST_AutoShot()
   if not auto_on then
-    TargetNearestEnemy()
+    local target_exists = UnitIsVisible("target") and not UnitIsDead("target")
+    if not target_exists then TargetNearestEnemy() end
     CastSpellByName("Auto Shot")
   end
 end
 
 function ST_SafeShot(shot)
   local spell = shots[shot]
-  if not spell or (spell and not spell.has) or auto_shot_duration == RELOAD_TIME then return end
-  if RangedSwingTime > spell.clip then
+  if not spell or (spell and not spell.id) or auto_shot_duration == RELOAD_TIME then return end
+  local cd,started = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
+  local now = GetTime()
+  if cd ~= 1.5 and (now - (started + cd) > 0) and RangedSwingTime > spell.clip then
     CastSpellByName(spell.spell)
   end
 end
@@ -179,17 +218,24 @@ SlashCmdList["SHOTTIMER"] = function(msg)
   elseif msg == "steady" then ST_SafeShot("steady")
   elseif msg == "aimed" then ST_SafeShot("aimed")
   elseif msg == "multi" then ST_SafeShot("multi")
-  elseif string.find(msg, "unlock") then
-    SetFrameLocked(false)
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar unlocked. Drag to reposition, then /shottimer lock.")
+  elseif msg == "petattack" then ST_SafePetAttack()
+  elseif msg == "lock" or msg == "unlock" then
+    frameLocked = not frameLocked
+    SetFrameLocked(frameLocked)
+    DEFAULT_CHAT_FRAME:AddMessage(title_text.." bar "..(frameLocked and "" or "un").."locked. Drag to reposition, then /shottimer lock.")
+  elseif msg == "show" or msg == "hide" then
+    barHidden = not barHidden
+    ShotTimerDB.barHidden = barHidden
+    UpdateShotTimerVisibility()
+    DEFAULT_CHAT_FRAME:AddMessage(title_text.." bar ".. (barHidden and "hidden" or "shown" )..".")
   elseif string.find(msg, "lock") then
     SetFrameLocked(true)
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar locked.")
+    DEFAULT_CHAT_FRAME:AddMessage(title_text.." bar locked.")
   elseif string.find(msg, "reset") then
     ResetShotTimerPosition()
     SetFrameLocked(false)
     shotTimer:SetScale(1)
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer bar reset.")
+    DEFAULT_CHAT_FRAME:AddMessage(title_text.." bar reset.")
   elseif string.find(msg, "scale") then
     local _,_,scale = string.find(msg, "scale%s+(%d*%.?%d+)")
     scale = tonumber(scale)
@@ -197,12 +243,14 @@ SlashCmdList["SHOTTIMER"] = function(msg)
       ShotTimerDB.scale = scale
       shotTimer:SetScale(scale)
       SetShotTimerPosition()
-      DEFAULT_CHAT_FRAME:AddMessage(string.format("ShotTimer scale set to %.2f", scale))
+      DEFAULT_CHAT_FRAME:AddMessage(string.format(title_text.." scale set to %.2f", scale))
     else
       DEFAULT_CHAT_FRAME:AddMessage("Usage: /shottimer scale 1.2 (range: 0.5–2)")
     end
   else
-    DEFAULT_CHAT_FRAME:AddMessage("ShotTimer ".. GetAddOnMetadata("ShotTimer","Version") ..": /autoshot [lock | unlock | scale | reset] | [auto | steady | aimed | multi]")
+    DEFAULT_CHAT_FRAME:AddMessage(title_text.." "..GetAddOnMetadata("ShotTimer","Version") ..":")
+    DEFAULT_CHAT_FRAME:AddMessage("/shottimer lock | scale | reset | hide")
+    DEFAULT_CHAT_FRAME:AddMessage("/shottimer auto | steady | aimed | multi | petattack")
   end
 end
 
@@ -326,8 +374,9 @@ function shotTimer:LEARNED_SPELL_IN_TAB()
     local spellName = GetSpellName(i, BOOKTYPE_SPELL)
     if not spellName then break end
     for k,shot in pairs(shots) do
-      if not shot.has and shot.spell == spellName then
-        shots[k].has = true
+      if not shot.id and shot.spell == spellName then
+        -- print(spellName .. " " .. i)
+        shots[k].id = i
         break
       end
     end
@@ -359,6 +408,7 @@ function shotTimer:VARIABLES_LOADED()
   ShotTimerDB = ShotTimerDB or {}
   ShotTimerDB.framePos = ShotTimerDB.framePos or {}
   ShotTimerDB.scale = ShotTimerDB.scale or 1.3
+  ShotTimerDB.barHidden = ShotTimerDB.barHidden or 
 
   shotTimer:SetScale(ShotTimerDB.scale)
   SetShotTimerPosition()
@@ -371,7 +421,7 @@ function shotTimer:VARIABLES_LOADED()
   end
 
   auto_shot_duration = RELOAD_TIME
-  RangedSwingTime = UnitRangedDamage("player")
+  RangedSwingTime = RELOAD_TIME
 
   greenBar:SetWidth(0)
   redBar:SetWidth(0)
