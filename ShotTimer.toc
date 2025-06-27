@@ -1,8 +1,8 @@
 ## Interface: 11200
 ## Title: ShotTimer
 ## Author: Weird Vibes
-## Version: 1.3
-## Notes: Just a simple timer for hunter auto shots
+## Version: 1.4
+## Notes: Simple timer for hunter auto shots + macro api
 ## SavedVariablesPerCharacter: ShotTimerDB
 
 ShotTimer.lua

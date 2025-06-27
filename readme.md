@@ -1,4 +1,4 @@
-Shot Timer 1.3
+Shot Timer 1.4
 ===
 [SuperWoW](https://github.com/balakethelock/SuperWoW/) required  
 ___
@@ -20,6 +20,8 @@ Macro api:
 * * `/shottimer aimed` `/shottimer steady` `/shottimer multi`
 * Auto Shot auto-attack via: `/run ST_AutoShot()` or `/shottimer auto`
 * Safer pet attack: `/run ST_SafePetAttack()` or `/shottimer petattack`
+* Feign Death when between dot ticks / autoshots: `/run ST_SafeFD()` or `/shottimer fd`
+* * This attempts to account for if you've fired a shot as well since a shot in flight will re-engage you.
 * * Only sends pet if you and your target are in combat.
 * Determine if it's safe for pet to act: `/run if ST_PetMayAttack() then ST_SafePetAttack() end`
 * * Used in the above.

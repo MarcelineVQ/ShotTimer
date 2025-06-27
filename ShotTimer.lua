@@ -2,6 +2,8 @@ local RELOAD_TIME = 0.5
 local BAR_WIDTH = 180
 local BAR_HEIGHT = 15
 local ICON_SIZE = 20
+local FD_WINDOW = 1
+local IN_FLIGHT_WINDOW = 0.4
 
 local title_text = "|cf7ffd700["..GetAddOnMetadata("ShotTimer","Title").."]|r"
 
@@ -20,6 +22,67 @@ outline:SetBackdrop({
 outline:SetBackdropBorderColor(0,0,0,1)
 outline:SetAllPoints(shotTimer)
 outline:Show()
+
+local spell_name_cache = {} -- SpellInfo is weirdly expensive
+local active_dots = {}
+
+-- slightly arbitrary leeway adjustments, so you can clip auto a tiny bit since it's still a gain
+local spellbook_data = {
+  steady = { clip = 1.3, spell = "Steady Shot", id = nil },
+  multi  = { clip = 0.5, spell = "Multi-Shot",  id = nil },
+  aimed  = { clip = 3.0, spell = "Aimed Shot",  id = nil },
+  fd     = { spell = "Feign Death",  id = nil },
+}
+
+local timed_shots_by_name = {
+  ["Steady Shot"] = true,
+  ["Aimed Shot"] = true,
+  ["Multi-Shot"] = true,
+}
+
+local instant_shots_by_name = {
+  ["Tranquilizing Shot"] = true,
+  ["Arcane Shot"] = true,
+  ["Distracting Shot"] = true,
+  ["Concussive Shot"] = true,
+  ["Scorpid Sting"] = true,
+  ["Scatter Shot"] = true,
+  ["Serpent Sting"] = true,
+}
+
+local dots_data = {
+  ["Immolation Trap Effect"] = { trap = true, interval = 3, spell = "Immolation Trap Effect", ticks = 5, },
+  ["Explosive Trap Effect"]  = { trap = true, interval = 2, spell = "Explosive Trap Effect", ticks = 10, },
+  ["Serpent Sting"]          = { interval = 3, spell = "Serpent-Sting", ticks = 5, }, -- procced serpent is 2 ticks
+  -- special cases, a pet attack or a shot can be in progress
+  ["Auto Shot"]               = { interval = IN_FLIGHT_WINDOW, spell = "Auto Shot", ticks = 1, },
+  ["Other Shot"]              = { interval = IN_FLIGHT_WINDOW, spell = "Other Shot", ticks = 1, },
+  -- ["Pet Attack"]             = { pet = true, interval = 2, spell = "MAINHAND", ticks = 1, }, -- no, you MUST passive pet to FD
+  -- piercing   = { interval = 2, spell = "", started = 0, ticks = 0, }, -- doens't cause feign issue
+}
+
+-- local dots_by_name = {
+--   ["Immolation Trap Effect"] = true,
+--   ["Explosive Trap Effect"] = true,
+--   ["Serpent-Sting"] = true,
+-- }
+
+-- detect presence of planning ahead buff
+local function PlanningAhead()
+  local ix = 0
+  local planning_ahead = false
+  while true do
+    local aura_ix = GetPlayerBuff(ix,"HELPFUL|PASSIVE")
+    if aura_ix == -1 then break end
+    local bid = GetPlayerBuffID(aura_ix)
+    if bid and bid == 51578 then
+        planning_ahead = true
+        break
+    end
+    ix = ix + 1
+  end
+  return planning_ahead
+end
 
 -- bar does the job
 -- Multi-Shot icon
@@ -171,13 +234,6 @@ local function SetShotTimerPosition()
   )
 end
 
--- slightly arbitrary leeway adjustments, so you can clip auto a tiny bit since it's still a gain
-local shots = {
-  steady = { clip = 1.3, spell = "Steady Shot", id = nil },
-  multi  = { clip = 0.5, spell = "Multi-Shot",  id = nil },
-  aimed  = { clip = 3.0, spell = "Aimed Shot",  id = nil },
-}
-
 -- pet may attack target when:
 -- your target is in combat and you are in combat
 function ST_PetMayAttack()
@@ -201,12 +257,90 @@ function ST_AutoShot()
 end
 
 function ST_SafeShot(shot)
-  local spell = shots[shot]
+  local spell = spellbook_data[shot]
   if not spell or (spell and not spell.id) or auto_shot_duration == RELOAD_TIME then return end
   local cd,started = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
   local now = GetTime()
   if cd ~= 1.5 and (now - (started + cd) > 0) and RangedSwingTime > spell.clip then
     CastSpellByName(spell.spell)
+  end
+end
+
+local function FindSafeFeignWindow(window_length)
+  local now = GetTime()
+  local tick_times = {}
+
+  for dot_name, expire_time in pairs(active_dots) do
+    print(dot_name .. " ".. (expire_time-now))
+    local dot = dots_data[dot_name]
+    if dot and expire_time > now then
+      if dot.ticks == 1 then
+        tinsert(tick_times, expire_time)
+      else
+        local interval = dot.interval
+        -- Find ticks from now until expire
+        local t = expire_time - dot.ticks * interval
+        while t < expire_time do
+          if t > now then
+            tinsert(tick_times, t)
+          end
+          t = t + interval
+        end
+      end
+    end
+  end
+
+  table.sort(tick_times)
+
+  local n = getn(tick_times)
+  if n == 0 then return 0 end
+
+  local prev = now
+  for i = 1, n do
+    local gap = tick_times[i] - prev
+    if gap >= window_length then
+      return prev - now
+    end
+    prev = tick_times[i]
+  end
+
+  -- After the last tick, is there a window?
+  local max_expire = now
+  for dot_name, expire in pairs(active_dots) do
+    if expire > max_expire then max_expire = expire end
+  end
+  if (max_expire - prev) >= window_length then
+    return prev - now
+  end
+
+  return nil
+end
+
+
+
+function ST_SafeFD()
+  local safe = FindSafeFeignWindow(FD_WINDOW)
+  if not safe then return end
+  if safe <= 0 then
+    -- if cd is up, recall pet and use FD, cd check ensures pet isn't recalled early
+    local cd,started = GetSpellCooldown(spellbook_data.fd.id, BOOKTYPE_SPELL)
+    local now = GetTime()
+    print("safe")
+    if cd ~= 1.5 and (now - (started + cd) > 0) then
+      CastPetAction(10)
+      CastSpellByName("Feign Death")
+    end
+  end
+end
+
+function TestWindow(w)
+  local safe_in = FindSafeFeignWindow(w)
+  if safe_in and safe_in <= 0 then
+    print("Safe to feign now!")
+  elseif safe_in then
+    print("Safe to feign in " .. string.format("%.2f", safe_in) .. " seconds.")
+  else
+    print("No safe feign window found!")
   end
 end
 
@@ -219,6 +353,7 @@ SlashCmdList["SHOTTIMER"] = function(msg)
   elseif msg == "aimed" then ST_SafeShot("aimed")
   elseif msg == "multi" then ST_SafeShot("multi")
   elseif msg == "petattack" then ST_SafePetAttack()
+  elseif msg == "fd" then ST_SafeFD()
   elseif msg == "lock" or msg == "unlock" then
     frameLocked = not frameLocked
     SetFrameLocked(frameLocked)
@@ -369,14 +504,15 @@ end)
 shotTimer:RegisterEvent("VARIABLES_LOADED")
 
 function shotTimer:LEARNED_SPELL_IN_TAB()
+  -- this will naturally find the maximum rank since it scans every spell in order
   local i = 1
   while true do
     local spellName = GetSpellName(i, BOOKTYPE_SPELL)
     if not spellName then break end
-    for k,shot in pairs(shots) do
-      if not shot.id and shot.spell == spellName then
+    for k,shot in pairs(spellbook_data) do
+      if shot.spell == spellName then
         -- print(spellName .. " " .. i)
-        shots[k].id = i
+        spellbook_data[k].id = i
         break
       end
     end
@@ -386,6 +522,14 @@ end
 
 function shotTimer:PLAYER_ENTERING_WORLD()
   self:LEARNED_SPELL_IN_TAB()
+
+  local _,_,_,_,trap_serpent_ticks = GetTalentInfo(3,11)
+  self.trap_serpent_ticks = trap_serpent_ticks
+end
+
+function shotTimer:CHAT_MSG_SPELL_SELF_DAMAGE(msg)
+  print(msg)
+  print(GetTime() - flight_time)
 end
 
 function shotTimer:VARIABLES_LOADED()
@@ -403,6 +547,7 @@ function shotTimer:VARIABLES_LOADED()
   shotTimer:RegisterEvent("PLAYER_DEAD")
   shotTimer:RegisterEvent("LEARNED_SPELL_IN_TAB")
   shotTimer:RegisterEvent("PLAYER_ENTERING_WORLD")
+  -- shotTimer:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
 
   -- SavedVars
   ShotTimerDB = ShotTimerDB or {}
@@ -440,15 +585,33 @@ function shotTimer:PLAYER_DEAD()
   in_combat = false
 end
 
-local spells_of_interest = {
-  ["Steady Shot"] = true,
-  ["Aimed Shot"] = true,
-  ["Multi-Shot"] = true,
-}
-
 function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
+  local now = GetTime()
   if not UnitIsUnit("player", caster) then return end
-  local spellname = SpellInfo(spell_id)
+  local cached = spell_name_cache[spell_id]
+  if not cached then
+    local n = SpellInfo(spell_id)
+    spell_name_cache[spell_id] = n
+    cached = n
+  end
+
+  -- for dot,dur in pairs(active_dots) do
+    -- if now > dur then
+      -- active_dots[dot] = nil
+    -- end
+  -- end
+  local dot = dots_data[cached]
+  if dot then
+    local ss = active_dots["Serpent Sting"]
+    if ss and now > ss then
+      active_dots["Serpent Sting"] = nil
+    end
+    if dot.trap and not ss then
+      -- add triggered sting, this will not overwrite a normal direct sting
+      active_dots["Serpent Sting"] = now + dots_data["Serpent Sting"].interval * self.trap_serpent_ticks
+    end
+    active_dots[cached] = now + dot.interval * dot.ticks
+  end
 
   if spell_id == 75 then
     if action == "FAIL" then
@@ -456,16 +619,22 @@ function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
       auto_on = false
     elseif action == "CAST" then
       ResetAutoShot()
+      active_dots["Auto Shot"] = now + IN_FLIGHT_WINDOW
+
+      -- flight_time = now
     end
-  elseif spells_of_interest[spellname] then
+  elseif timed_shots_by_name[cached] then
     if action == "START" then
       -- starting spell
     elseif action == "CAST" then
-      if spellname == "Multi-Shot" then
+      if cached == "Multi-Shot" then
         ms_cd = GetTime()
       end
       ResetAutoShot(true)
+      active_dots["Other Shot"] = now + IN_FLIGHT_WINDOW
     end
+  elseif instant_shots_by_name[cached] and action == "CAST" then
+    active_dots["Other Shot"] = now + IN_FLIGHT_WINDOW
   end
   UpdateShotTimerVisibility()
 end
