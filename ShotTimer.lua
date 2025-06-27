@@ -9,7 +9,7 @@ local shotTimer = CreateFrame("Frame", "ShotTimer", UIParent)
 -- local shotTimer = CreateFrame("Frame", "AutoShotTimerAnchor")
 shotTimer:SetWidth(BAR_WIDTH)
 shotTimer:SetHeight(BAR_HEIGHT)
-shotTimer:Hide()
+shotTimer:Show()
 
 -- Outline
 local outline = CreateFrame("Frame", nil, shotTimer)
@@ -113,20 +113,20 @@ local function UpdateShotTimerVisibility()
   if frameLocked then
     local now = GetTime()
     if auto_shot_duration > 0 and (now - auto_shot_start) < auto_shot_duration then
-      shotTimer:Show()
       outline:Show()
       autoText:Show()
     else
-      if not in_combat then
-        shotTimer:Show()  -- DO NOT HIDE shotTimer, keep updating
+      if in_combat then
+        outline:Show()
+        autoText:Show()
+      else
+        outline:Hide()
+        autoText:Hide()
       end
-      outline:Show()
-      autoText:Show()
     end
     outline:SetBackdropBorderColor(0,0,0,1)
   else
     -- Always visible, grayed border for feedback
-    shotTimer:Show()
     outline:Show()
     autoText:Show()
     outline:SetBackdropBorderColor(1, 0.8, 0.1, 1)

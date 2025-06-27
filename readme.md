@@ -9,7 +9,7 @@ Includes:
 * Indictor of Multi-Shot cooldown
 * Macro functions
 
-`/shottimer` for options such as `/shottimer hide` if you just want macro features.
+Use `/shottimer` for in-game options.
 
 Will not include an Aimed Shot indicator, aimed shot is a 3.5 second cast on TurtleWoW due to how vmangos is coded, the safe time to use it is simply **as soon as possible** after Auto Shot fires and only if your weapon is 3.2 speed or better and you don't have Steady Shot, or 3.4 or better if you do have Steady Shot.  
 ___
