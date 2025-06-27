@@ -2,8 +2,8 @@ local RELOAD_TIME = 0.5
 local BAR_WIDTH = 180
 local BAR_HEIGHT = 15
 local ICON_SIZE = 20
-local FD_WINDOW = 1
-local IN_FLIGHT_WINDOW = 0.4
+local FD_WINDOW = 0.7
+local IN_FLIGHT_WINDOW = 1
 
 local title_text = "|cf7ffd700["..GetAddOnMetadata("ShotTimer","Title").."]|r"
 
@@ -55,8 +55,8 @@ local dots_data = {
   ["Explosive Trap Effect"]  = { trap = true, interval = 2, spell = "Explosive Trap Effect", ticks = 10, },
   ["Serpent Sting"]          = { interval = 3, spell = "Serpent-Sting", ticks = 5, }, -- procced serpent is 2 ticks
   -- special cases, a pet attack or a shot can be in progress
-  ["Auto Shot"]               = { interval = IN_FLIGHT_WINDOW, spell = "Auto Shot", ticks = 1, },
-  ["Other Shot"]              = { interval = IN_FLIGHT_WINDOW, spell = "Other Shot", ticks = 1, },
+  ["Shot"]               = { interval = IN_FLIGHT_WINDOW, spell = "Auto Shot", ticks = 1, },
+  -- ["Other Shot"]              = { interval = IN_FLIGHT_WINDOW, spell = "Other Shot", ticks = 1, },
   -- ["Pet Attack"]             = { pet = true, interval = 2, spell = "MAINHAND", ticks = 1, }, -- no, you MUST passive pet to FD
   -- piercing   = { interval = 2, spell = "", started = 0, ticks = 0, }, -- doens't cause feign issue
 }
@@ -182,9 +182,11 @@ local function UpdateShotTimerVisibility()
       if in_combat then
         outline:Show()
         autoText:Show()
+        msBar:Show()
       else
         outline:Hide()
         autoText:Hide()
+        msBar:Hide()
       end
     end
     outline:SetBackdropBorderColor(0,0,0,1)
@@ -270,8 +272,21 @@ local function FindSafeFeignWindow(window_length)
   local now = GetTime()
   local tick_times = {}
 
+  local min_expire = nil
+  -- 1. Block FD if a shot is in flight
   for dot_name, expire_time in pairs(active_dots) do
-    print(dot_name .. " ".. (expire_time-now))
+    -- print(dot_name .. " ".. (expire_time-now))
+    if dot_name == "Shot" and expire_time > now then
+      -- There's a shot in flight: do not FD until after
+      min_expire = min_expire and math.min(min_expire, expire_time) or expire_time
+    end
+  end
+  if min_expire then
+    return min_expire - now  -- Wait until in-flight is over
+  end
+
+  -- 2. Calculate window as usual for DoTs etc
+  for dot_name, expire_time in pairs(active_dots) do
     local dot = dots_data[dot_name]
     if dot and expire_time > now then
       if dot.ticks == 1 then
@@ -316,8 +331,6 @@ local function FindSafeFeignWindow(window_length)
   return nil
 end
 
-
-
 function ST_SafeFD()
   local safe = FindSafeFeignWindow(FD_WINDOW)
   if not safe then return end
@@ -325,22 +338,11 @@ function ST_SafeFD()
     -- if cd is up, recall pet and use FD, cd check ensures pet isn't recalled early
     local cd,started = GetSpellCooldown(spellbook_data.fd.id, BOOKTYPE_SPELL)
     local now = GetTime()
-    print("safe")
+    -- print("safe")
     if cd ~= 1.5 and (now - (started + cd) > 0) then
       CastPetAction(10)
       CastSpellByName("Feign Death")
     end
-  end
-end
-
-function TestWindow(w)
-  local safe_in = FindSafeFeignWindow(w)
-  if safe_in and safe_in <= 0 then
-    print("Safe to feign now!")
-  elseif safe_in then
-    print("Safe to feign in " .. string.format("%.2f", safe_in) .. " seconds.")
-  else
-    print("No safe feign window found!")
   end
 end
 
@@ -527,10 +529,10 @@ function shotTimer:PLAYER_ENTERING_WORLD()
   self.trap_serpent_ticks = trap_serpent_ticks
 end
 
-function shotTimer:CHAT_MSG_SPELL_SELF_DAMAGE(msg)
-  print(msg)
-  print(GetTime() - flight_time)
-end
+-- function shotTimer:CHAT_MSG_SPELL_SELF_DAMAGE(msg)
+  -- print(msg)
+  -- print(GetTime() - flight_time)
+-- end
 
 function shotTimer:VARIABLES_LOADED()
 
@@ -619,7 +621,7 @@ function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
       auto_on = false
     elseif action == "CAST" then
       ResetAutoShot()
-      active_dots["Auto Shot"] = now + IN_FLIGHT_WINDOW
+      active_dots["Shot"] = now + IN_FLIGHT_WINDOW
 
       -- flight_time = now
     end
@@ -631,10 +633,10 @@ function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
         ms_cd = GetTime()
       end
       ResetAutoShot(true)
-      active_dots["Other Shot"] = now + IN_FLIGHT_WINDOW
+      active_dots["Shot"] = now + IN_FLIGHT_WINDOW
     end
   elseif instant_shots_by_name[cached] and action == "CAST" then
-    active_dots["Other Shot"] = now + IN_FLIGHT_WINDOW
+    active_dots["Shot"] = now + IN_FLIGHT_WINDOW
   end
   UpdateShotTimerVisibility()
 end
