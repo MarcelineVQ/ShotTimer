@@ -21,7 +21,7 @@ Macro api:
 * Auto Shot auto-attack via: `/run ST_AutoShot()` or `/shottimer auto`
 * Feign Death when between dot ticks / autoshots: `/run ST_SafeFD()` or `/shottimer fd`
 * * This attempts to account for if you've fired a shot as well since a shot in flight will re-engage you.
-* * Automatically recalls pet as it is REQUIRED to succeed at swaps.
+* * Automatically recalls pet as it is REQUIRED to succeed at trinket swaps.
 * Safer pet attack: `/run ST_SafePetAttack()` or `/shottimer petattack`
 * * Only sends pet if you and your target are in combat.
 * * The intent for this is to increase pet uptime mid-combat, you should still manually send a pet in via keybinds.

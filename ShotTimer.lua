@@ -182,7 +182,7 @@ local function UpdateShotTimerVisibility()
       if in_combat then
         outline:Show()
         autoText:Show()
-        msBar:Show()
+        -- msBar:Show()
       else
         outline:Hide()
         autoText:Hide()
