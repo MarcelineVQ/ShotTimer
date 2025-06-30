@@ -1,4 +1,4 @@
-Shot Timer 1.4
+Shot Timer 1.4.1
 ===
 [SuperWoW](https://github.com/balakethelock/SuperWoW/) required  
 ___

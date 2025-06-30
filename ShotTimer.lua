@@ -179,7 +179,7 @@ local function UpdateShotTimerVisibility()
       outline:Show()
       autoText:Show()
     else
-      if in_combat then
+      if in_combat and (now - (auto_shot_start + auto_shot_duration) < 2)  then
         outline:Show()
         autoText:Show()
         -- msBar:Show()
@@ -544,6 +544,7 @@ function shotTimer:VARIABLES_LOADED()
 
   shotTimer:RegisterEvent("UNIT_CASTEVENT")
   shotTimer:RegisterEvent("START_AUTOREPEAT_SPELL")
+  shotTimer:RegisterEvent("STOP_AUTOREPEAT_SPELL")
   shotTimer:RegisterEvent("PLAYER_REGEN_DISABLED")
   shotTimer:RegisterEvent("PLAYER_REGEN_ENABLED")
   shotTimer:RegisterEvent("PLAYER_DEAD")
@@ -618,7 +619,7 @@ function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
   if spell_id == 75 then
     if action == "FAIL" then
       -- fail logic
-      auto_on = false
+      -- auto_on = false
     elseif action == "CAST" then
       ResetAutoShot()
       active_dots["Shot"] = now + IN_FLIGHT_WINDOW
@@ -639,6 +640,11 @@ function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
     active_dots["Shot"] = now + IN_FLIGHT_WINDOW
   end
   UpdateShotTimerVisibility()
+end
+
+
+function shotTimer:STOP_AUTOREPEAT_SPELL()
+  auto_on = false
 end
 
 function shotTimer:START_AUTOREPEAT_SPELL()
