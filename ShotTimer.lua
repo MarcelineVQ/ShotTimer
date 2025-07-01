@@ -5,6 +5,21 @@ local ICON_SIZE = 20
 local FD_WINDOW = 0.7
 local IN_FLIGHT_WINDOW = 1
 
+if not SetAutoloot then
+  StaticPopupDialogs["NO_SUPERWOW_SHOTTIMER"] = {
+    text = "|cffffff00ShotTimer|r requires SuperWoW to operate.",
+    button1 = TEXT(OKAY),
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    showAlert = 1,
+  }
+
+  StaticPopup_Show("NO_SUPERWOW_SHOTTIMER")
+  return
+end
+
+local has_nampower = pcall(GetCVar,"NP_QueueCastTimeSpells")
 local title_text = "|cf7ffd700["..GetAddOnMetadata("ShotTimer","Title").."]|r"
 
 local shotTimer = CreateFrame("Frame", "ShotTimer", UIParent)
@@ -28,10 +43,10 @@ local active_dots = {}
 
 -- slightly arbitrary leeway adjustments, so you can clip auto a tiny bit since it's still a gain
 local spellbook_data = {
-  steady = { clip = 1.3, spell = "Steady Shot", id = nil },
+  steady = { clip = 1.2, spell = "Steady Shot", id = nil },
   multi  = { clip = 0.5, spell = "Multi-Shot",  id = nil },
-  aimed  = { clip = 3.0, spell = "Aimed Shot",  id = nil },
-  fd     = { spell = "Feign Death",  id = nil },
+  aimed  = { clip = 3.2, spell = "Aimed Shot",  id = nil },
+  fd     = {             spell = "Feign Death", id = nil },
 }
 
 local timed_shots_by_name = {
@@ -264,7 +279,14 @@ function ST_SafeShot(shot)
   local cd,started = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
   local now = GetTime()
   if cd ~= 1.5 and (now - (started + cd) > 0) and RangedSwingTime > spell.clip then
-    CastSpellByName(spell.spell)
+    if has_nampower then
+      local q = GetCVar("NP_QueueCastTimeSpells")
+      SetCVar("NP_QueueCastTimeSpells", "0")
+      CastSpellByNameNoQueue(spell.spell)
+      SetCVar("NP_QueueCastTimeSpells", q)
+    else
+      CastSpellByName(spell.spell)
+    end
   end
 end
 
@@ -359,7 +381,7 @@ SlashCmdList["SHOTTIMER"] = function(msg)
   elseif msg == "lock" or msg == "unlock" then
     frameLocked = not frameLocked
     SetFrameLocked(frameLocked)
-    DEFAULT_CHAT_FRAME:AddMessage(title_text.." bar "..(frameLocked and "" or "un").."locked. Drag to reposition, then /shottimer lock.")
+    DEFAULT_CHAT_FRAME:AddMessage(title_text.." bar "..(frameLocked and "" or "un").."locked."  )
   elseif msg == "show" or msg == "hide" then
     barHidden = not barHidden
     ShotTimerDB.barHidden = barHidden
@@ -618,8 +640,7 @@ function shotTimer:UNIT_CASTEVENT(caster,target,action,spell_id,cast_time)
 
   if spell_id == 75 then
     if action == "FAIL" then
-      -- fail logic
-      -- auto_on = false
+      -- use STOP_AUTOREPEAT_SPELL
     elseif action == "CAST" then
       ResetAutoShot()
       active_dots["Shot"] = now + IN_FLIGHT_WINDOW
