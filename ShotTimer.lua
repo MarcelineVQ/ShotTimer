@@ -282,7 +282,7 @@ function ST_SafeShot(shot)
     if has_nampower then
       local q = GetCVar("NP_QueueCastTimeSpells")
       SetCVar("NP_QueueCastTimeSpells", "0")
-      CastSpellByNameNoQueue(spell.spell)
+      CastSpellByName(spell.spell)
       SetCVar("NP_QueueCastTimeSpells", q)
     else
       CastSpellByName(spell.spell)
